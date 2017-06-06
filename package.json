@@ -1,6 +1,6 @@
 {
   "name": "@graphcms/react-apollo",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "React data container for Apollo Client",
   "main": "lib/react-apollo.umd.js",
   "module": "./lib/index.js",
