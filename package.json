@@ -1,5 +1,5 @@
 {
-  "name": "react-apollo",
+  "name": "@graphcms/react-apollo",
   "version": "1.4.2",
   "description": "React data container for Apollo Client",
   "main": "lib/react-apollo.umd.js",
