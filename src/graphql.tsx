@@ -192,7 +192,7 @@ export default function graphql<
           }); // tslint:disable-line
         if (
           (this.client !== client && this.client !== nextContext.client) ||
-          !equalQueries
+          (!equalQueries && this.type === DocumentType.Query)
         ) {
           if (client) {
             this.client = client;
