@@ -25,7 +25,7 @@ import { connect } from 'react-redux';
 
 import { mockNetworkInterface } from '../../../src/test-utils';
 
-describe('SSR', () => {
+xdescribe('SSR', () => {
   // it('should render the expected markup', (done) => {
 
   //   const query = gql`query ssr { allPeople(first: 1) { people { name } } }`;

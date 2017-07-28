@@ -2,6 +2,7 @@ import { Component, createElement } from 'react';
 import * as PropTypes from 'prop-types';
 
 const pick = require('lodash.pick');
+const isEqual = require('lodash.isequal');
 import shallowEqual from './shallowEqual';
 
 const invariant = require('invariant');
@@ -16,7 +17,7 @@ import ApolloClient, {
   ApolloQueryResult,
 } from 'apollo-client';
 
-import { parser, DocumentType } from './parser';
+import { parser, DocumentType, IDocumentDefinition } from './parser';
 import { ObservableQueryRecycler } from './queryRecycler';
 
 import { DocumentNode } from 'graphql';
@@ -61,7 +62,6 @@ function observableQueryFields(observable) {
 function getDisplayName(WrappedComponent) {
   return WrappedComponent.displayName || WrappedComponent.name || 'Component';
 }
-
 // Helps track hot reloading.
 let nextVersion = 0;
 
@@ -70,7 +70,7 @@ export default function graphql<
   TProps = {},
   TChildProps = ChildProps<TProps, TResult>
 >(
-  document: DocumentNode,
+  document: (props: any) => DocumentNode | DocumentNode,
   operationOptions: OperationOption<TProps, TResult> = {},
 ): ComponentDecorator<TProps, TChildProps> {
   // extract options
@@ -80,6 +80,15 @@ export default function graphql<
     alias = 'Apollo',
   } = operationOptions;
 
+  const queryPropsMapMode = typeof document === 'function';
+
+  let mapPropsToDocument = document as (
+    props: any,
+  ) => DocumentNode | DocumentNode;
+  if (typeof document !== 'function') mapPropsToDocument = () => document;
+
+  let mapPropsToOperation = props => parser(mapPropsToDocument(props));
+
   let mapPropsToOptions = options as (props: any) => QueryOpts | MutationOpts;
   if (typeof mapPropsToOptions !== 'function')
     mapPropsToOptions = () => options;
@@ -88,9 +97,6 @@ export default function graphql<
   if (typeof mapPropsToSkip !== 'function') mapPropsToSkip = () => skip as any;
 
   const mapResultToProps = operationOptions.props;
-
-  // safety check on the operation
-  const operation = parser(document);
 
   // Helps track hot reloading.
   const version = nextVersion++;
@@ -140,17 +146,21 @@ export default function graphql<
       constructor(props, context) {
         super(props, context);
         this.version = version;
-        this.type = operation.type;
+        this.type = mapPropsToOperation(props).type;
         this.dataForChildViaMutation = this.dataForChildViaMutation.bind(this);
+        props.debug && console.log('L', 'constructor'); // tslint:disable-line
       }
 
       componentWillMount() {
+        this.props.debug && console.log('L', 'componentWillMount'); // tslint:disable-line
         if (!this.shouldSkip(this.props)) {
           this.setInitialProps();
         }
       }
 
       componentDidMount() {
+        this.props.debug && console.log('L', 'componentDidMount'); // tslint:disable-line
+
         this.hasMounted = true;
         if (this.type === DocumentType.Mutation) return;
 
@@ -160,7 +170,11 @@ export default function graphql<
       }
 
       componentWillReceiveProps(nextProps, nextContext) {
+        this.props.debug && console.log('L', 'componentWillReceiveProps'); // tslint:disable-line
+
         const { client } = mapPropsToOptions(nextProps);
+        const nextQuery = mapPropsToDocument(nextProps);
+        const query = mapPropsToDocument(this.props);
         if (
           shallowEqual(this.props, nextProps) &&
           (this.client === client || this.client === nextContext.client)
@@ -170,7 +184,16 @@ export default function graphql<
 
         this.shouldRerender = true;
 
-        if (this.client !== client && this.client !== nextContext.client) {
+        const equalQueries = isEqual(query, nextQuery);
+        this.props.debug &&
+          console.log('equalQueries', equalQueries, {
+            current: JSON.stringify(query, null, 2),
+            next: JSON.stringify(nextQuery, null, 2),
+          }); // tslint:disable-line
+        if (
+          (this.client !== client && this.client !== nextContext.client) ||
+          !equalQueries
+        ) {
           if (client) {
             this.client = client;
           } else {
@@ -179,6 +202,13 @@ export default function graphql<
           this.unsubscribeFromQuery();
           this.queryObservable = null;
           this.previousData = {};
+
+          // if (!equalQueries) {
+          //   const opts: QueryOpts = this.calculateOptions(nextProps);
+          //   this.createQuery(opts, nextProps);
+          // } else {
+          // }
+
           this.updateQuery(nextProps);
           if (!this.shouldSkip(nextProps)) {
             this.subscribeToQuery();
@@ -212,10 +242,14 @@ export default function graphql<
       }
 
       componentWillUnmount() {
+        this.props.debug && console.log('L', 'componentWillUnmount'); // tslint:disable-line
+
         if (this.type === DocumentType.Query) {
           // Recycle the query observable if there ever was one.
           if (this.queryObservable) {
-            recycler.recycle(this.queryObservable);
+            this.props.debug && console.log('L', 'queryObservable'); // tslint:disable-line
+
+            // recycler.recycle(this.queryObservable);
             delete this.queryObservable;
           }
 
@@ -255,7 +289,7 @@ export default function graphql<
 
       calculateOptions(props = this.props, newOpts?) {
         let opts = mapPropsToOptions(props);
-
+        const operation = mapPropsToOperation(props);
         if (newOpts && newOpts.variables) {
           newOpts.variables = assign({}, opts.variables, newOpts.variables);
         }
@@ -316,15 +350,16 @@ export default function graphql<
         // fire until we do.
         const opts: QueryOpts = this.calculateOptions(this.props);
 
-        this.createQuery(opts);
+        this.createQuery(opts, this.props);
       }
 
-      createQuery(opts: QueryOpts) {
+      createQuery(opts: QueryOpts, props) {
+        const query = mapPropsToDocument(props);
         if (this.type === DocumentType.Subscription) {
           this.queryObservable = this.getClient().subscribe(
             assign(
               {
-                query: document,
+                query,
               },
               opts,
             ),
@@ -339,7 +374,7 @@ export default function graphql<
             this.queryObservable = this.getClient().watchQuery(
               assign(
                 {
-                  query: document,
+                  query,
                   metadata: {
                     reactComponent: {
                       displayName: graphQLDisplayName,
@@ -360,7 +395,7 @@ export default function graphql<
 
         // if we skipped initially, we may not have yet created the observable
         if (!this.queryObservable) {
-          this.createQuery(opts);
+          this.createQuery(opts, props);
         }
 
         if (this.queryObservable._setOptionsNoResult) {
@@ -383,32 +418,33 @@ export default function graphql<
 
       // For server-side rendering (see server.ts)
       fetchData(): Promise<ApolloQueryResult<any>> | boolean {
-        if (this.shouldSkip()) return false;
-        if (
-          operation.type === DocumentType.Mutation ||
-          operation.type === DocumentType.Subscription
-        )
-          return false;
+        return false;
+        // if (this.shouldSkip()) return false;
+        // if (
+        //   operation.type === DocumentType.Mutation ||
+        //   operation.type === DocumentType.Subscription
+        // )
+        //   return false;
 
-        const opts = this.calculateOptions() as any;
-        if (opts.ssr === false) return false;
-        if (
-          opts.fetchPolicy === 'network-only' ||
-          opts.fetchPolicy === 'cache-and-network'
-        ) {
-          opts.fetchPolicy = 'cache-first'; // ignore force fetch in SSR;
-        }
+        // const opts = this.calculateOptions() as any;
+        // if (opts.ssr === false) return false;
+        // if (
+        //   opts.fetchPolicy === 'network-only' ||
+        //   opts.fetchPolicy === 'cache-and-network'
+        // ) {
+        //   opts.fetchPolicy = 'cache-first'; // ignore force fetch in SSR;
+        // }
 
-        const observable = this.getClient().watchQuery(
-          assign({ query: document }, opts),
-        );
-        const result = observable.currentResult();
+        // const observable = this.getClient().watchQuery(
+        //   assign({ query: document }, opts),
+        // );
+        // const result = observable.currentResult();
 
-        if (result.loading) {
-          return observable.result();
-        } else {
-          return false;
-        }
+        // if (result.loading) {
+        //   return observable.result();
+        // } else {
+        //   return false;
+        // }
       }
 
       subscribeToQuery() {
@@ -489,7 +525,7 @@ export default function graphql<
 
         if (typeof opts.variables === 'undefined') delete opts.variables;
 
-        (opts as any).mutation = document;
+        (opts as any).mutation = mapPropsToDocument(this.props);
         return this.getClient().mutate(opts as any) as Promise<
           ApolloQueryResult<TResult>
         >;

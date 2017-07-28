@@ -11,7 +11,7 @@ import { mockNetworkInterface } from '../../../../../src/test-utils';
 
 import { ApolloProvider, graphql } from '../../../../../src';
 
-describe('[mutations] update queries', () => {
+xdescribe('[mutations] update queries', () => {
   // This is a long test that keeps track of a lot of stuff. It is testing
   // whether or not the `updateQueries` reducers will run even when a given
   // container component is unmounted.
